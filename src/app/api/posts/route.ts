@@ -191,3 +191,28 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: message }, { status: 400 });
   }
 }
+
+/** ---------- DELETE: Clear posts from the database ---------- */
+export async function DELETE(request: NextRequest) {
+  const sp = request.nextUrl.searchParams;
+  const rawChannel = sp.get("channel") ?? "";
+  const channel = normalize(rawChannel);
+
+  try {
+    if (channel) {
+      await prisma.post.deleteMany({
+        where: {
+          title: { startsWith: `[@${channel}]` },
+        },
+      });
+    } else {
+      await prisma.post.deleteMany({});
+    }
+
+    return Response.json({ success: true });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to clear the database.";
+    return Response.json({ error: message }, { status: 500 });
+  }
+}

@@ -44,6 +44,10 @@ export function ShowPost({ channel = "" }: ShowPostProps) {
   const [selected, setSelected] = useState<TelegramPost | null>(null);
   const [fullImage, setFullImage] = useState<string | null>(null);
 
+  // Clear Database states
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -75,13 +79,39 @@ export function ShowPost({ channel = "" }: ShowPostProps) {
     };
   }, [channel]);
 
-  // Escape closes whichever overlay is on top (image first, then modal)
+  // Handle database wipe execution
+  const handleClearDatabase = async () => {
+    setClearing(true);
+    try {
+      const params = new URLSearchParams({ source: "db" });
+      if (channel) params.set("channel", channel);
+
+      const res = await fetch(`/api/posts?${params.toString()}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || "Failed to clear the database.");
+      }
+
+      setPosts([]);
+      setIsClearModalOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to clear posts.");
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  // Escape closes whichever overlay is on top
   useEffect(() => {
-    if (!selected && !fullImage) return;
+    if (!selected && !fullImage && !isClearModalOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (fullImage) setFullImage(null);
-        else setSelected(null);
+        else if (selected) setSelected(null);
+        else if (isClearModalOpen) setIsClearModalOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -91,7 +121,7 @@ export function ShowPost({ channel = "" }: ShowPostProps) {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [selected, fullImage]);
+  }, [selected, fullImage, isClearModalOpen]);
 
   const filtered = posts.filter((post) => {
     const matchesFilter =
@@ -113,23 +143,25 @@ export function ShowPost({ channel = "" }: ShowPostProps) {
       <section className="max-w-7xl mx-auto space-y-8">
         
         {/* Header & Search/Filter Toolbar */}
-        <header className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 bg-slate-900/60 border border-slate-800/80 p-6 rounded-2xl backdrop-blur-xl shadow-2xl">
-          <div className="space-y-1">
+        <header className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 bg-slate-900/60 border border-slate-800/80 p-6 rounded-3xl backdrop-blur-xl shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 -mt-12 -mr-12 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+          
+          <div className="space-y-1 relative z-10">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold tracking-wide uppercase">
               <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
               Database Archives
             </div>
             <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
               {channel ? `@${channel}` : "All Saved Posts"}
-              <span className="text-sm font-medium px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700/50">
+              <span className="text-sm font-medium px-3 py-1 rounded-full bg-slate-800/90 text-slate-300 border border-slate-700/60 shadow-inner">
                 {filtered.length} total
               </span>
             </h2>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 relative z-10 flex-wrap">
             {/* Filter Pills */}
-            <div className="flex items-center bg-slate-950/80 p-1.5 rounded-xl border border-slate-800 shadow-inner">
+            <div className="flex items-center bg-slate-950/80 p-1.5 rounded-2xl border border-slate-800 shadow-inner">
               {(
                 [
                   ["all", "All"],
@@ -140,10 +172,10 @@ export function ShowPost({ channel = "" }: ShowPostProps) {
                 <button
                   key={value}
                   type="button"
-                  className={`flex-1 sm:flex-none px-4 py-2 text-xs font-semibold rounded-lg transition-all duration-200 ${
+                  className={`flex-1 sm:flex-none px-4 py-2 text-xs font-semibold rounded-xl transition-all duration-200 ${
                     filter === value
-                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
-                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 scale-[1.02]"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60"
                   }`}
                   onClick={() => {
                     setFilter(value);
@@ -163,7 +195,7 @@ export function ShowPost({ channel = "" }: ShowPostProps) {
                 </svg>
               </span>
               <input
-                className="w-full sm:w-64 pl-10 pr-4 py-2.5 bg-slate-950/80 border border-slate-800 rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all shadow-inner"
+                className="w-full sm:w-60 pl-10 pr-4 py-2.5 bg-slate-950/80 border border-slate-800 rounded-2xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all shadow-inner"
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value);
@@ -172,34 +204,61 @@ export function ShowPost({ channel = "" }: ShowPostProps) {
                 placeholder="Search keywords..."
               />
             </div>
+
+            {/* Clear Database Action Button */}
+            {posts.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setIsClearModalOpen(true)}
+                className="px-4 py-2.5 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-semibold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg shadow-rose-950/20"
+                title="Remove all posts from database"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Clear Database
+              </button>
+            )}
           </div>
         </header>
 
         {/* States: Loading, Error, Empty */}
         {loading && (
-          <div className="flex flex-col items-center justify-center py-20 bg-slate-900/30 border border-slate-800/50 rounded-2xl backdrop-blur-sm">
-            <div className="w-10 h-10 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
-            <p className="text-slate-400 font-medium animate-pulse">Syncing saved posts from database...</p>
+          <div className="flex flex-col items-center justify-center py-24 bg-slate-900/30 border border-slate-800/50 rounded-3xl backdrop-blur-sm">
+            <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
+            <p className="text-slate-400 font-medium animate-pulse text-sm">Syncing saved posts from database...</p>
           </div>
         )}
 
         {error && (
-          <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-400 text-center font-medium">
+          <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-400 text-center font-medium text-sm">
             {error}
           </div>
         )}
 
         {!loading && !error && filtered.length === 0 && (
-          <div className="text-center py-20 bg-slate-900/30 border border-slate-800/50 rounded-2xl">
-            <div className="w-16 h-16 bg-slate-800/50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-500">
+          <div className="text-center py-24 bg-slate-900/30 border border-slate-800/50 rounded-3xl shadow-xl">
+            <div className="w-16 h-16 bg-slate-800/50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-500 border border-slate-700/50">
               <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-white mb-1">No saved posts found</h3>
-            <p className="text-slate-400 text-sm max-w-sm mx-auto">
+            <h3 className="text-lg font-bold text-white mb-1">No saved posts found</h3>
+            <p className="text-slate-400 text-sm max-w-sm mx-auto mb-6">
               No results match your active criteria. Try searching a channel or clearing your filter parameters.
             </p>
+            {(query || filter !== "all" || channel) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setFilter("all");
+                }}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition-all"
+              >
+                Reset Filters
+              </button>
+            )}
           </div>
         )}
 
@@ -211,9 +270,9 @@ export function ShowPost({ channel = "" }: ShowPostProps) {
               return (
                 <article
                   key={`${post.channel}-${post.id}`}
-                  className={`group relative bg-slate-900/50 hover:bg-slate-900/80 border ${
+                  className={`group relative bg-slate-900/50 hover:bg-slate-900/90 border ${
                     isItJob ? "border-emerald-500/30 hover:border-emerald-500/60" : "border-slate-800 hover:border-slate-700"
-                  } rounded-2xl overflow-hidden transition-all duration-300 flex flex-col cursor-pointer shadow-xl hover:shadow-indigo-500/5`}
+                  } rounded-3xl overflow-hidden transition-all duration-300 flex flex-col cursor-pointer shadow-xl hover:shadow-indigo-500/5`}
                   onClick={() => setSelected(post)}
                   role="button"
                   tabIndex={0}
@@ -265,7 +324,7 @@ export function ShowPost({ channel = "" }: ShowPostProps) {
                         {post.matchedKeywords.slice(0, 4).map((word) => (
                           <span
                             key={word}
-                            className="px-2 py-0.5 rounded-md bg-slate-800/80 border border-slate-700/50 text-[11px] font-medium text-slate-300"
+                            className="px-2.5 py-0.5 rounded-lg bg-slate-800/80 border border-slate-700/50 text-[11px] font-medium text-slate-300"
                           >
                             #{word}
                           </span>
@@ -305,7 +364,7 @@ export function ShowPost({ channel = "" }: ShowPostProps) {
             <button
               type="button"
               onClick={() => setVisibleCount((n) => n + 9)}
-              className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition-all shadow-lg shadow-indigo-600/25 active:scale-95"
+              className="px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition-all shadow-lg shadow-indigo-600/25 active:scale-95"
             >
               Load More Posts ({filtered.length - visibleCount} remaining)
             </button>
@@ -315,13 +374,67 @@ export function ShowPost({ channel = "" }: ShowPostProps) {
             <button
               type="button"
               onClick={() => setVisibleCount(9)}
-              className="px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-semibold text-sm transition-all"
+              className="px-6 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-semibold text-sm transition-all"
             >
               Show Less
             </button>
           )}
         </div>
       </section>
+
+      {/* ---------- Confirm Clear Database Modal ---------- */}
+      {isClearModalOpen && (
+        <div
+          onClick={() => !clearing && setIsClearModalOpen(false)}
+          className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fadeIn"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-slate-900 border border-slate-800 text-slate-100 rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl relative flex flex-col space-y-6"
+          >
+            <div className="w-12 h-12 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center justify-center text-rose-400">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            
+            <div className="space-y-2">
+              <h3 className="text-xl font-bold text-white">Clear entire database?</h3>
+              <p className="text-sm text-slate-400 leading-relaxed">
+                This action will permanently remove all saved posts{channel ? ` for @${channel}` : ""} from the database. This operation cannot be undone.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                disabled={clearing}
+                onClick={() => setIsClearModalOpen(false)}
+                className="flex-1 py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-sm transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={clearing}
+                onClick={handleClearDatabase}
+                className="flex-1 py-3 px-4 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-sm transition-all shadow-lg shadow-rose-600/30 flex items-center justify-center gap-2"
+              >
+                {clearing ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                    Clearing...
+                  </>
+                ) : (
+                  "Yes, Delete All"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ---------- Detailed Post Modal ---------- */}
       {selected && (
@@ -400,7 +513,7 @@ export function ShowPost({ channel = "" }: ShowPostProps) {
                     {selected.matchedKeywords.map((word) => (
                       <span
                         key={word}
-                        className="px-3 py-1 rounded-lg bg-slate-800/60 border border-slate-700/60 text-xs font-medium text-indigo-300"
+                        className="px-3 py-1 rounded-xl bg-slate-800/60 border border-slate-700/60 text-xs font-medium text-indigo-300"
                       >
                         #{word}
                       </span>
@@ -444,7 +557,7 @@ export function ShowPost({ channel = "" }: ShowPostProps) {
           <img
             src={fullImage}
             alt="Full-size preview"
-            className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl"
+            className="max-w-[95vw] max-h-[90vh] object-contain rounded-2xl shadow-2xl"
           />
 
           <button
